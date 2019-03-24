@@ -1,0 +1,1712 @@
+<html>
+<head>
+<style>
+* {
+  margin: 0;
+}
+
+canvas {
+  position: fixed;
+  width: 1000px;
+  height: 800px;
+  background: #262626;
+  left: 50%;
+  margin-left: -500px;
+  top: 80px;
+  cursor: crosshair;
+}
+
+#info {
+  color: #FFF;
+  font-family: "Lucida Sans Typewriter", "Lucida Console", Monaco, "Bitstream Vera Sans Mono", monospace;
+  margin: 10px 10px 0;
+  padding: 8px;
+  background: #161616;
+  position: absolute;
+  z-index: 1;
+}
+
+#info h1 {
+  font-size: 18px;
+}
+
+#info p {
+  font-size: 11px;
+}
+</style>
+</head>
+<body>
+  <!--
+@2014 Jeff Ibacache | http://dev.everblind.me/
+License: https://github.com/everblind/js-playground/blob/master/license.md
+Source: https://github.com/everblind/js-playground/tree/master/canvas-asteroids
+-->
+
+<div id="info">
+  <h1>Canvas Asteroids:</h1>
+  <p>Hold left-click to move towards mouse.</p>
+  <p>Right click to boost.</p>
+  <p>Space to shoot.</p>
+</div>
+
+<canvas id="canvas"></canvas>
+<script type="text/javascript">
+//pool.js ...........................................................
+
+var Pool = (function()
+{
+  //exposed methods:
+
+  var create = function(type, size)
+  {
+    var obj = Object.create(def);
+    obj.init(type, size);
+
+    return obj;
+  };
+
+  //Ship definition:
+
+  var def =
+  {
+    _type: null,
+    _size: null,
+    _pointer: null,
+    _elements:null,
+
+    init: function(type, size)
+    {
+      this._type = type;
+      this._size = size;
+      this._pointer = size;
+      this._elements = [];
+
+      var i = 0;
+      var length = this._size;
+
+      for(i; i < length; ++i)
+      {
+        this._elements[i] = this._type.create();
+      }
+    },
+
+    getElement: function()
+    {
+      if(this._pointer > 0) return this._elements[--this._pointer];
+
+      return null;
+    },
+
+    disposeElement: function(obj)
+    {
+      this._elements[this._pointer++] = obj;
+    }
+  };
+
+  return {create:create};
+}());
+
+//vec2d.js ...........................................................
+
+var Vec2D = (function()
+{
+  //exposed methods:
+
+  var create = function(x, y)
+  {
+    var obj = Object.create(def);
+    obj.setXY(x, y);
+
+    return obj;
+  };
+
+  //Vec2D definition:
+
+  var def =
+  {
+    _x: 1,
+    _y: 0,
+
+    getX: function()
+    {
+      return this._x;
+    },
+
+    setX: function(value)
+    {
+      this._x = value;
+    },
+
+    getY: function()
+    {
+      return this._y;
+    },
+
+    setY: function(value)
+    {
+      this._y = value;
+    },
+
+    setXY: function(x, y)
+    {
+      this._x = x;
+      this._y = y;
+    },
+
+    getLength: function()
+    {
+      return Math.sqrt(this._x * this._x + this._y * this._y);
+    },
+
+    setLength: function(length)
+    {
+      var angle = this.getAngle();
+      this._x = Math.cos(angle) * length;
+      this._y = Math.sin(angle) * length;
+    },
+
+    getAngle: function()
+    {
+      return Math.atan2(this._y, this._x);
+    },
+
+    setAngle: function(angle)
+    {
+      var length = this.getLength();
+      this._x = Math.cos(angle) * length;
+      this._y = Math.sin(angle) * length;
+    },
+
+    add: function(vector)
+    {
+      this._x += vector.getX();
+      this._y += vector.getY();
+    },
+
+    sub: function(vector)
+    {
+      this._x -= vector.getX();
+      this._y -= vector.getY();
+    },
+
+    mul: function(value)
+    {
+      this._x *= value;
+      this._y *= value;
+    },
+
+    div: function(value)
+    {
+      this._x /= value;
+      this._y /= value;
+    }
+  };
+
+  return {create:create};
+}());
+
+//particle.js ...........................................................
+
+var Particle = (function()
+{
+  //exposed methods:
+
+  var create = function()
+  {
+    var obj = Object.create(def);
+    obj.radius = 2;
+    obj.color = '#FFF';
+    obj.lifeSpan = 0;
+    obj.fric = 0.98;
+    obj.pos = Vec2D.create(0, 0);
+    obj.vel = Vec2D.create(0, 0);
+    obj.blacklisted = false;
+
+    return obj;
+  };
+
+  //Ship definition:
+
+  var def =
+  {
+    radius: null,
+    color: null,
+    lifeSpan: null,
+    fric: null,
+    pos: null,
+    vel: null,
+    blacklisted: null,
+
+    update: function()
+    {
+      this.pos.add(this.vel);
+      this.vel.mul(this.fric);
+      this.radius -= 0.1;
+
+      if(this.radius < 0.1) this.radius = 0.1;
+
+      if(this.lifeSpan-- < 0)
+      {
+        this.blacklisted = true;
+      }
+    },
+
+    reset: function()
+    {
+      this.blacklisted = false;
+    }
+  };
+
+  return {create:create};
+}());
+
+//bullet.js ...........................................................
+
+var Bullet = (function()
+{
+  //exposed methods:
+
+  var create = function()
+  {
+    var obj = Object.create(def);
+    obj.radius = 4;
+    obj.color = '#FFF';
+    obj.pos = Vec2D.create(0, 0);
+    obj.vel = Vec2D.create(0, 0);
+    obj.blacklisted = false;
+
+    return obj;
+  };
+
+  //Bullet definition:
+
+  var def =
+  {
+    radius: null,
+    color: null,
+    pos: null,
+    vel: null,
+    blacklisted: null,
+
+    update: function()
+    {
+      this.pos.add(this.vel);
+    },
+
+    reset: function()
+    {
+      this.blacklisted = false;
+    }
+  };
+
+  return {create:create};
+}());
+
+//asteroid.js ...........................................................
+
+var Asteroid = (function()
+{
+  //exposed methods:
+
+  var create = function()
+  {
+    var obj = Object.create(def);
+    obj.radius = 40;
+    obj.color = '#FF5900';
+    obj.pos = Vec2D.create(0, 0);
+    obj.vel = Vec2D.create(0, 0);
+    obj.blacklisted = false;
+    obj.type = 'b';
+    obj.sides = (Math.random() * 2 + 7) >> 0;
+    obj.angle = 0;
+    obj.angleVel = (1 - Math.random() * 2) * 0.01;
+
+    return obj;
+  };
+
+  //Ship definition:
+
+  var def =
+  {
+    radius: null,
+    color: null,
+    pos: null,
+    vel: null,
+    blacklisted: null,
+    type: null,
+    sides: null,
+    angle: null,
+    angleVel: null,
+
+    update: function()
+    {
+      this.pos.add(this.vel);
+      this.angle += this.angleVel;
+    },
+
+    reset: function()
+    {
+      this.blacklisted = false;
+    }
+  };
+
+  return {create:create};
+}());
+
+//ship.js ...........................................................
+
+var Ship = (function()
+{
+  //exposed methods:
+
+  var create = function(x, y, ref)
+  {
+    var obj = Object.create(def);
+    obj.ref = ref;
+    obj.angle = 0;
+    obj.pos = Vec2D.create(x, y);
+    obj.vel = Vec2D.create(0, 0);
+    obj.thrust = Vec2D.create(0, 0);
+    obj.idle = false;
+    obj.radius = 8;
+    obj.idleDelay = 0;
+
+    return obj;
+  };
+
+  //Ship definition:
+
+  var def =
+  {
+    angle: null,
+    pos: null,
+    vel: null,
+    thrust: null,
+    ref: null,
+    bulletDelay: null,
+    idle: null,
+    radius: null,
+
+    update: function()
+    {
+      this.vel.add(this.thrust);
+      this.pos.add(this.vel);
+
+      ++this.bulletDelay;
+
+      if(this.idle)
+      {
+        if(++this.idleDelay > 120)
+        {
+          this.idleDelay = 0;
+          this.idle = false;
+
+          this.ref.endRound();
+        }
+      }
+    },
+
+    shoot: function()
+    {
+      if(this.bulletDelay > 20)
+      {
+        this.ref.generateBullet();
+        this.bulletDelay = 0;
+      }
+    }
+  };
+
+  return {create:create};
+}());
+
+//canvas-asteroids.js ...........................................................
+
+//common vars
+
+var canvas;
+var context;
+var screenWidth;
+var screenHeight;
+var doublePI = Math.PI * 2;
+
+//game vars
+
+var ship;
+
+var particlePool;
+var particles;
+
+var bulletPool;
+var bullets;
+
+var asteroidPool;
+var asteroids;
+
+var hScan;
+var asteroidVelFactor = 0;
+
+//keyboard vars
+
+var turnLeft = false;
+var moveForward = false;
+var turnRight = false;
+var brake = false;
+var keySpace = false;
+var mouseControls = false
+var mouseX = -1
+var mouseY = -1
+
+var turnRate = 0.1
+
+var originalMaxVel = 2
+var originalMaxAsteroids = 8
+var originalAsteroidStartVel = 3
+var originalBoostCooldown = 3000
+var originalBulletSpeed = 10
+
+var minThrustRate = 0.1
+var maxThrustRate = 0.5
+var minMouseRange = 10 //Gotta be at least this far from ship to count
+var maxMouseRange = 200 //How many pixels away from your ship to put your mouse for max thrust
+var maxVel = originalMaxVel
+var maxNumAsteroids = originalMaxAsteroids
+var asteroidStartVelocity = originalAsteroidStartVel
+
+var bulletSpeed = originalBulletSpeed
+var roundEnd = new Date()
+var roundStart = new Date()
+var roundDuration = 20000
+var roundProgress = 0 //0 to 1
+
+var score = 0
+var shotsFired = 0
+var shotsHit = 0
+var currentRound = 0
+var gameWon = false
+var crashed = false
+
+var originalBoostMaxCharges = 1
+var originalBoostVel = 10
+
+var boost = {
+  maxCharges: originalBoostMaxCharges,
+  charges: originalBoostMaxCharges,
+  cooldown: originalBoostCooldown, //ms
+  vel: originalBoostVel,
+  isBoosting: false,
+  duration: 250
+}
+
+var gameState = 'paused'
+
+function boostChargeCooldown () {
+  setTimeout(() => {
+    boost.charges += 1
+    if (boost.charges < boost.maxCharges) {
+      boostChargeCooldown()
+    }
+
+    if (boost.charges > boost.maxCharges) {
+      boost.charges = boost.maxCharges
+    }
+  }, boost.cooldown)
+}
+
+window.getAnimationFrame =
+window.requestAnimationFrame ||
+window.webkitRequestAnimationFrame ||
+window.mozRequestAnimationFrame ||
+window.oRequestAnimationFrame ||
+window.msRequestAnimationFrame ||
+function(callback)
+{
+  window.setTimeout(callback, 16.6);
+};
+
+function getDistance (x1,y1,x2, y2) {
+  return Math.hypot(x2-x1, y2-y1)
+}
+
+window.onload = function()
+{
+  canvas = document.getElementById('canvas');
+  context = canvas.getContext('2d');
+
+  window.onresize();
+
+  keyboardInit();
+  particleInit();
+  bulletInit();
+  asteroidInit();
+  shipInit();
+  mouseInit()
+  loop();
+
+  startRound()
+  console.log(`Start playing!`)
+};
+
+window.onresize = function()
+{
+  if(!canvas) return;
+
+  screenWidth = canvas.clientWidth;
+  screenHeight = canvas.clientHeight;
+
+  canvas.width = screenWidth;
+  canvas.height = screenHeight;
+
+  hScan = (screenHeight / 4) >> 0;
+};
+
+function isRightClick (e) {
+  return e.which == 3
+}
+
+function mouseInit () {
+  function updateMousePos (event) {
+    var bounds = event.target.getBoundingClientRect();
+    mouseX = event.clientX - bounds.left;
+    mouseY = event.clientY - bounds.top;
+  }
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (isRightClick(e)) {
+      if (boost.boosting) {
+        return false
+      }
+      if (boost.charges == 0) {
+        return false
+      }
+      updateMousePos(e)
+      updateAngle()
+      ship.vel.setAngle(ship.angle)
+      boost.charges -= 1
+      boost.boosting = true
+      ship.vel.setLength(boost.vel)
+
+      setTimeout(() => {
+        boost.boosting = false
+        updateAngle()
+        renderShip()
+        boostChargeCooldown()
+      }, boost.duration)
+
+      return
+    }
+
+    moveForward = true
+    mouseControls = true
+    updateMousePos(e)
+  })
+
+  canvas.addEventListener('mouseup', (e) => {
+    if (isRightClick(e)) {
+      return
+    }
+    mouseControls = false
+    moveForward = false
+    updateMousePos(e)
+  })
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (isRightClick(e)) {
+      return
+    }
+    updateMousePos(e)
+  })
+
+  canvas.addEventListener('click', (e) => {
+    if (isRightClick(e)) {
+      return
+    }
+    updateMousePos(e)
+    updateAngle(true)
+  })
+
+
+  window.oncontextmenu = function (e)
+  {
+    return false
+  }
+}
+
+function keyboardInit()
+{
+  window.onkeydown = function(e)
+  {
+    switch(e.keyCode)
+    {
+      /*//key A or LEFT
+      case 65:
+      case 37:
+
+      turnLeft = true;
+      e.preventDefault();
+
+      break;
+
+      //key W or UP
+      case 87:
+      case 38:
+
+      moveForward = true;
+      e.preventDefault();
+
+      break;
+
+      //key D or RIGHT
+      case 68:
+      case 39:
+
+      turnRight = true;
+      e.preventDefault();
+
+      break;
+
+      //key S or DOWN
+      case 83:
+      case 40:
+
+      brake = true;
+      e.preventDefault();
+
+      break;*/
+
+      //key Space
+      case 32:
+       case 75:
+
+      keySpace = true;
+      e.preventDefault();
+
+      break;
+    }
+    
+  };
+
+  window.onkeyup = function(e)
+  {
+    switch(e.keyCode)
+    {
+      /*//key A or LEFT
+      case 65:
+      case 37:
+
+      turnLeft = false;
+      e.preventDefault();
+
+      break;
+
+      //key W or UP
+      case 87:
+      case 38:
+
+      moveForward = false;
+      e.preventDefault();
+
+      break;
+
+      //key D or RIGHT
+      case 68:
+      case 39:
+
+      turnRight = false;
+      e.preventDefault();
+
+      break;
+
+      //key S or DOWN
+      case 83:
+      case 40:
+
+      brake = false;
+      e.preventDefault();
+
+      break;
+*/
+      //key Space
+       case 75:
+      case 32:
+
+      keySpace = false;
+      e.preventDefault();
+
+      break;
+    }
+    
+  };
+}
+
+function particleInit()
+{
+  particlePool = Pool.create(Particle, 100);
+  particles = [];
+}
+
+function bulletInit()
+{
+  bulletPool = Pool.create(Bullet, 40);
+  bullets = [];
+}
+
+function asteroidInit()
+{
+  asteroidPool = Pool.create(Asteroid, 30);
+  asteroids = [];
+}
+
+function shipInit()
+{
+  ship = Ship.create(screenWidth >> 1, screenHeight >> 1, this);
+}
+
+function loop()
+{
+  if (gameState == 'playing') {
+    updateShip();
+    updateParticles();
+    updateBullets();
+    updateAsteroids();
+    updateRoundProgress()
+    checkCollisions();
+    render();
+
+    if (roundProgress >= 1 && !crashed) {
+      endRound(true)
+    }
+  }
+
+  getAnimationFrame(loop);
+}
+
+function updateRoundProgress () {
+  if (crashed) {
+    return
+  }
+  const duration = new Date().getTime() - roundStart
+
+  roundProgress = duration / roundDuration
+}
+
+function calculateThrustRate () {
+  if (mouseControls) {
+    const distance = getDistance(mouseX, mouseY, ship.pos._x, ship.pos._y)
+
+
+    const mult = distance / maxMouseRange
+
+    return Math.min(maxThrustRate, mult * maxThrustRate)
+  }
+
+  return maxThrustRate
+}
+
+function getMouseDistanceMult () {
+  const distance = getDistance(mouseX, mouseY, ship.pos._x, ship.pos._y)
+  if (distance < minMouseRange) {
+    return 0
+  }
+
+  let mult = distance / maxMouseRange
+
+  if (mult < 0) {
+    return 0
+  }
+
+  if (mult > 1) {
+    return 1
+  }
+
+  return mult
+}
+
+function calculateMaxVel () {
+  const mult = getMouseDistanceMult()
+  return Math.min(maxVel, mult * maxVel)
+}
+
+function updateAngle (log) {
+  if (boost.boosting) {
+    return
+  }
+
+  var angle = Math.atan2(Math.round(mouseY) - Math.round(ship.pos._y), Math.round(mouseX) - Math.round(ship.pos._x));
+  angle = angle * (180/Math.PI);
+
+  let shipDegree = (ship.angle * (180/Math.PI))
+
+  if (shipDegree < 0) {
+    shipDegree = 360 + shipDegree
+    if (log) {
+      //console.log(`too low`)
+    }
+  } else if (shipDegree > 360) {
+    //console.log(`too high`)
+    if (log) {
+      shipDegree -= 360
+    }
+  }
+
+  ship.angle = angle * (Math.PI/180)
+  //renderShip()
+  return
+}
+
+let count = 0
+var rate = 1
+function updateShip()
+{
+  updateAngle(false)
+
+  ship.update();
+
+  if(ship.idle) {
+    return
+  }
+
+  if(keySpace) {
+    ship.shoot()
+  }
+
+  if(moveForward)
+  {
+    if (!boost.boosting) {
+      const thrustRate = calculateThrustRate()
+      const maxVel = calculateMaxVel()
+
+      ship.vel.setLength(maxVel)
+      ship.vel.setAngle(ship.angle)
+      ship.thrust.setLength(thrustRate);
+      ship.thrust.setAngle(ship.angle);
+    }
+  }
+  else
+  {
+    ship.vel.mul(0.99);
+    ship.thrust.setLength(0);
+  }
+
+  if (moveForward || boost.boosting) {
+    generateThrustParticle()
+  }
+
+  if(ship.pos.getX() > screenWidth) ship.pos.setX(0);
+  else if(ship.pos.getX() < 0) ship.pos.setX(screenWidth);
+
+  if(ship.pos.getY() > screenHeight) ship.pos.setY(0);
+  else if(ship.pos.getY() < 0) ship.pos.setY(screenHeight);
+}
+
+let thrustCount = 0
+function generateThrustParticle()
+{
+  const mult = getMouseDistanceMult()
+  let thrustDelay = Math.max(20 * (1 - mult), 2)
+
+  if (boost.boosting) {
+    thrustDelay = 0
+  }
+
+  if (thrustCount < thrustDelay) {
+    thrustCount++
+    return
+  } else {
+    thrustCount = 0
+  }
+
+  var p = particlePool.getElement();
+
+  //if the particle pool doesn't have more elements, will return 'null'.
+
+  if(!p) return;
+
+  const radiusBase = boost.boosting ? 4 : 2
+  p.radius = Math.random() * radiusBase + (mult * 5)
+
+  const max = 55
+  const min = 20
+  const diff = max - min
+  const sat = min + (diff * mult)
+
+  p.color = boost.boosting ? 'hsla(270, 100%, 58%, 1)' : 'hsla(194, 69%, ' + sat + '%, 1)'
+  p.lifeSpan = 50;
+  p.fill = boost.boosting
+  p.pos.setXY(ship.pos.getX() + Math.cos(ship.angle) * -14, ship.pos.getY() + Math.sin(ship.angle) * -14);
+  p.vel.setLength(8 / p.radius);
+  p.vel.setAngle(ship.angle + (1 - Math.random() * 2) * (Math.PI / 18));
+  p.vel.mul(-1);
+
+  //particles[particles.length] = p; same as: particles.push(p);
+
+  particles[particles.length] = p;
+
+  if (boost.boosting) {
+    var p = particlePool.getElement();
+
+    //if the particle pool doesn't have more elements, will return 'null'.
+
+    if(!p) return;
+
+    p.radius = Math.random() * 4 + (mult * 5)
+    p.color = 'hsla(20,75%,75%, ' + mult + ')';
+    p.lifeSpan = 50;
+    p.pos.setXY(ship.pos.getX() + Math.cos(ship.angle) * -14, ship.pos.getY() + Math.sin(ship.angle) * -14);
+    p.vel.setLength(8 / p.radius);
+    p.vel.setAngle(ship.angle + (1 - Math.random() * 2) * (Math.PI / 18));
+    p.vel.mul(-1);
+  }
+}
+
+function updateParticles()
+{
+  var i = particles.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var p = particles[i];
+
+    if(p.blacklisted)
+    {
+      p.reset();
+
+      particles.splice(particles.indexOf(p), 1);
+      particlePool.disposeElement(p);
+
+      continue;
+    }
+
+    p.update();
+  }
+}
+
+function updateBullets()
+{
+  var i = bullets.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var b = bullets[i];
+
+    if(b.blacklisted)
+    {
+      b.reset();
+
+      bullets.splice(bullets.indexOf(b), 1);
+      bulletPool.disposeElement(b);
+
+      continue;
+    }
+
+    b.update();
+
+    if(b.pos.getX() > screenWidth) b.blacklisted = true;
+    else if(b.pos.getX() < 0) b.blacklisted = true;
+
+    if(b.pos.getY() > screenHeight) b.blacklisted = true;
+    else if(b.pos.getY() < 0) b.blacklisted = true;
+  }
+}
+
+function updateAsteroids()
+{
+  var i = asteroids.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var a = asteroids[i];
+
+    if(a.blacklisted)
+    {
+      a.reset();
+
+      asteroids.splice(asteroids.indexOf(a), 1);
+      asteroidPool.disposeElement(a);
+
+      continue;
+    }
+
+    a.update();
+
+    if(a.pos.getX() > screenWidth + a.radius) a.pos.setX(-a.radius);
+    else if(a.pos.getX() < -a.radius) a.pos.setX(screenWidth + a.radius);
+
+    if(a.pos.getY() > screenHeight + a.radius) a.pos.setY(-a.radius);
+    else if(a.pos.getY() < -a.radius) a.pos.setY(screenHeight + a.radius);
+  }
+
+  if(asteroids.length < maxNumAsteroids)
+  {
+    var factor = (Math.random() * 2) >> 0;
+
+    generateAsteroid(screenWidth * factor, screenHeight * factor, 60 + (10 * Math.random()), 'b');
+  }
+}
+
+function generateAsteroid(x, y, radius, type)
+{
+  var a = asteroidPool.getElement();
+
+  //if the bullet pool doesn't have more elements, will return 'null'.
+
+  if(!a) return;
+
+  a.radius = radius;
+  a.type = type;
+  a.pos.setXY(x, y);
+  a.vel.setLength(asteroidStartVelocity + asteroidVelFactor);
+  a.vel.setAngle(Math.random() * (Math.PI * 2));
+
+  //bullets[bullets.length] = b; same as: bullets.push(b);
+
+  asteroids[asteroids.length] = a;
+  asteroidVelFactor += 0.075;
+}
+
+function checkCollisions()
+{
+  checkBulletAsteroidCollisions();
+  checkShipAsteroidCollisions();
+}
+
+function checkBulletAsteroidCollisions()
+{
+  var i = bullets.length - 1;
+  var j;
+
+  for(i; i > -1; --i)
+  {
+    j = asteroids.length - 1;
+
+    for(j; j > -1; --j)
+    {
+      var b = bullets[i];
+      var a = asteroids[j];
+
+      if(checkDistanceCollision(b, a))
+      {
+        b.blacklisted = true;
+
+        destroyAsteroid(a);
+        score += 1
+        shotsHit++
+        //Medium
+        if (a.type == 'm') {
+          score += 1
+        }
+        //Small
+        if (a.type == 's') {
+          score += 2
+        }
+      }
+    }
+  }
+}
+
+function checkShipAsteroidCollisions()
+{
+  if (boost.boosting) {
+    return
+  }
+
+  var i = asteroids.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var a = asteroids[i];
+    var s = ship;
+
+    if(checkDistanceCollision(a, s))
+    {
+      if(s.idle) return;
+
+      s.idle = true;
+      crashed = true
+
+      generateShipExplosion();
+      destroyAsteroid(a);
+    }
+  }
+}
+
+function randomIntFromInterval(min,max) // min and max included
+{
+    return Math.floor(Math.random()*(max-min+1)+min);
+}
+
+function generateShipExplosion()
+{
+  var i = 18;
+
+  for(i; i > -1; --i)
+  {
+    var p = particlePool.getElement();
+
+    //if the particle pool doesn't have more elements, will return 'null'.
+
+    if(!p) return;
+
+
+    let colorStart = Math.random() < 0.5 ? 40 : 360
+    let colorVariant = randomIntFromInterval(0, 15)
+
+    p.radius = Math.random() * 6 + 2;
+    p.lifeSpan = 120;
+    p.color = `hsl(${colorStart - colorVariant}, 100%, 53%)`
+    p.vel.setLength(20 / p.radius);
+    p.vel.setAngle(ship.angle + (1 - Math.random() * 2) * doublePI);
+    p.pos.setXY(ship.pos.getX() + Math.cos(p.vel.getAngle()) * (ship.radius * 0.8), ship.pos.getY() + Math.sin(p.vel.getAngle()) * (ship.radius * 0.8));
+    p.fill = true
+
+    //particles[particles.length] = p; same as: particles.push(p);
+
+    particles[particles.length] = p;
+  }
+}
+
+function checkDistanceCollision(obj1, obj2)
+{
+  var vx = obj1.pos.getX() - obj2.pos.getX();
+  var vy = obj1.pos.getY() - obj2.pos.getY();
+  var vec = Vec2D.create(vx, vy);
+
+  if(vec.getLength() < obj1.radius + obj2.radius)
+  {
+    return true;
+  }
+
+  return false;
+}
+
+function destroyAsteroid(asteroid)
+{
+  asteroid.blacklisted = true;
+
+  generateAsteroidExplosion(asteroid);
+  resolveAsteroidType(asteroid);
+}
+
+function generateAsteroidExplosion(asteroid)
+{
+  return
+  var i = 18;
+
+  for(i; i > -1; --i)
+  {
+    var p = particlePool.getElement();
+
+    //if the particle pool doesn't have more elements, will return 'null'.
+
+    if(!p) return;
+
+    p.radius = Math.random() * (asteroid.radius >> 2) + 2;
+    p.lifeSpan = 20;
+    p.color = 'hsla(9, 74%, 81%, 0.46)';
+    p.vel.setLength(20 / p.radius);
+    p.vel.setAngle(ship.angle + (1 - Math.random() * 2) * doublePI);
+    p.pos.setXY(asteroid.pos.getX() + Math.cos(p.vel.getAngle()) * (asteroid.radius * 0.8), asteroid.pos.getY() + Math.sin(p.vel.getAngle()) * (asteroid.radius * 0.8));
+
+    //particles[particles.length] = p; same as: particles.push(p);
+
+    particles[particles.length] = p;
+  }
+}
+
+function resolveAsteroidType(asteroid)
+{
+  switch(asteroid.type)
+  {
+    case 'b':
+
+    generateAsteroid(asteroid.pos.getX(), asteroid.pos.getY(), 40, 'm');
+    generateAsteroid(asteroid.pos.getX(), asteroid.pos.getY(), 40, 'm');
+
+    break;
+
+    case 'm':
+
+    generateAsteroid(asteroid.pos.getX(), asteroid.pos.getY(), 20, 's');
+    generateAsteroid(asteroid.pos.getX(), asteroid.pos.getY(), 20, 's');
+
+    break;
+  }
+}
+
+function render()
+{
+  context.fillStyle = '#000';
+  context.globalAlpha = 0.4;
+  context.fillRect(0, 0, screenWidth, screenHeight);
+  context.globalAlpha = 1;
+
+  renderShip();
+  renderParticles();
+  renderBullets();
+  renderAsteroids();
+  renderScanlines();
+  renderScore()
+  renderMovement()
+  renderRound()
+  renderBoostCharges()
+  renderRoundProgress()
+}
+
+function getAccuracy () {
+  return shotsFired == 0 ? 'N/A' : Math.round(shotsHit/shotsFired*100) + '%'
+}
+
+function renderRoundProgress () {
+  const width = 980
+
+  context.fillStyle = 'hsla(149, 100%, 13%, 0.5)';
+  context.fillRect(10, 780, width, 15);
+
+  var grd = context.createLinearGradient(0,0,width,0);
+  grd.addColorStop(0,'hsla(134, 75%, 22%, 1)');
+  grd.addColorStop(1,'hsla(134, 100%, 50%, 1)');
+  context.fillStyle = grd
+
+  const progressWidth = Math.min(width * roundProgress, width)
+  context.fillRect(10, 780, progressWidth, 15);
+}
+
+function renderRound () {
+  context.font = '15px Arial';
+  context.fillStyle = '#fff'
+  context.fillText('Round ' + currentRound, 855, 20);
+}
+
+function renderScore () {
+  context.font = '15px Arial';
+  context.fillStyle = '#fff'
+  context.fillText('Score: ' + score, 915, 20);
+
+
+  const accuracy = getAccuracy()
+  context.fillText('Accuracy: ' + accuracy, 892, 40);
+}
+
+function renderMovement () {
+  const widths =  maxMouseRange
+
+  context.fillStyle = 'hsla(194, 84%, 25%, 1)';
+  context.fillRect(10, 10, widths, 25);
+  context.fillStyle = 'hsla(194, 69%, 55%, 1)';
+
+  const filled = boost.boosting ? widths : widths * getMouseDistanceMult()
+
+  context.fillRect(10, 10, moveForward ? filled : 0, 25);
+}
+
+function renderBoostCharges () {
+  const width = 40
+  const padding = 10
+  for (var i = 1; i <= boost.maxCharges; i++) {
+    context.fillStyle = boost.charges >= i ? 'hsla(270, 69%, 55%, 1)' : 'hsla(270, 69%, 80%, 0.25)';
+    context.fillRect(padding * 2 + maxMouseRange + ((width + padding) * (i - 1)), 10, width, 25);
+  }
+}
+
+function renderShip()
+{
+  if(ship.idle || crashed) return;
+
+  context.save();
+  context.translate(ship.pos.getX() >> 0, ship.pos.getY() >> 0);
+  context.rotate(ship.angle);
+
+  context.strokeStyle = boost.boosting ? 'hsla(270, 100%, 58%, 1)' : '#fff';
+  context.lineWidth = (Math.random() > 0.9) ? 2 : 1;
+  context.beginPath();
+  context.moveTo(10, 0);
+  context.lineTo(-10, -10);
+  context.lineTo(-10, 10);
+  context.lineTo(10, 0);
+  context.stroke();
+  context.closePath();
+  context.restore();
+
+
+  //Mouse border thingy to show how far to move your mouse
+/*
+  context.beginPath();
+  context.arc(ship.pos.getX() >> 0, ship.pos.getY() >> 0, maxMouseRange, 0, Math.PI*2, true); 
+  context.closePath();
+  context.strokeStyle = 'hsla(194, 84%, 100%, 0.21)'
+  context.stroke();
+  context.restore();
+
+*/  //Charges
+/*  let x = ship.pos.getX() >> 0
+  let y = ship.pos.getY() >> 0
+  context.font = '10px serif';
+  context.fillStyle = '#fff'
+  context.fillText(boost.charges, x, y + 25);*/
+}
+
+function renderParticles()
+{
+  //inverse for loop = more performance.
+
+  var i = particles.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var p = particles[i];
+
+    context.beginPath();
+    context.arc(p.pos.getX() >> 0, p.pos.getY() >> 0, p.radius, 0, doublePI);
+
+    if(Math.random() > 0.4 || true) {
+      if (p.fill) {
+        context.fillStyle = p.color//'#ff0000'//p.color
+        context.fill()
+      } else {
+        context.strokeStyle = p.color;
+        context.stroke();
+      }
+    }
+    context.closePath();
+  }
+}
+
+function renderBullets()
+{
+  //inverse for loop = more performance.
+
+  var i = bullets.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var b = bullets[i];
+
+    context.beginPath();
+    context.strokeStyle = b.color;
+    context.fillStyle = b.color;
+    context.arc(b.pos.getX() >> 0, b.pos.getY() >> 0, b.radius, 0, doublePI);
+    if(Math.random() > 0.2) {
+      context.stroke();
+      context.fill()
+    }
+    context.closePath();
+  }
+}
+
+function renderAsteroids()
+{
+  //inverse for loop = more performance.
+
+  var i = asteroids.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var a = asteroids[i];
+
+    context.beginPath();
+    context.lineWidth = (Math.random() > 0.2) ? 4 : 3;
+    context.strokeStyle = a.color;
+
+    var j = a.sides;
+
+    context.moveTo((a.pos.getX() + Math.cos(doublePI * (j / a.sides) + a.angle) * a.radius) >> 0, (a.pos.getY() + Math.sin(doublePI * (j / a.sides) + a.angle) * a.radius) >> 0);
+
+    for(j; j > -1; --j)
+    {
+      context.lineTo((a.pos.getX() + Math.cos(doublePI * (j / a.sides) + a.angle) * a.radius) >> 0, (a.pos.getY() + Math.sin(doublePI * (j / a.sides) + a.angle) * a.radius) >> 0);
+      
+    }
+
+    if(Math.random() > 0.2) context.stroke();
+    
+    context.closePath();
+  }
+}
+
+function renderScanlines()
+{
+  //inverse for loop = more performance.
+
+  var i = hScan;
+
+  context.globalAlpha = 0.05;
+  context.lineWidth = 1;
+
+  for(i; i > -1; --i)
+  {
+    context.beginPath();
+    context.moveTo(0, i * 4);
+    context.lineTo(screenWidth, i * 4);
+    context.strokeStyle = (Math.random() > 0.0001) ? '#FFF' : '#222';
+    context.stroke();
+  }
+
+  context.globalAlpha = 1;
+}
+
+function generateBullet()
+{
+  var b = bulletPool.getElement();
+
+  //if the bullet pool doesn't have more elements, will return 'null'.
+
+  if(!b) return;
+
+  b.radius = 2;
+  b.pos.setXY(ship.pos.getX() + Math.cos(ship.angle) * 14, ship.pos.getY() + Math.sin(ship.angle) * 14);
+  b.vel.setLength(bulletSpeed);
+  b.vel.setAngle(ship.angle);
+
+  //bullets[bullets.length] = b; same as: bullets.push(b);
+
+  bullets[bullets.length] = b;
+  shotsFired += 1
+}
+
+class Bonus {
+
+}
+
+class MaxSpeedBonus extends Bonus {
+  constructor () {
+    super()
+    this.bonus = 0.1
+    this.rarity = 0.1
+  }
+
+  display () {
+    return 'Racing Stripes: +' + this.bonus + ' max ship speed'
+  }
+
+  enable () {
+    maxVel += this.bonus
+  }
+}
+
+class BulletSpeedBonus extends Bonus {
+  constructor () {
+    super()
+    this.bonus = 1
+    this.rarity = 0.5
+  }
+
+  display () {
+    return 'Bolter Rounds: +' + this.bonus + ' bullet speed'
+  }
+
+  enable () {
+    bulletSpeed += this.bonus
+  }
+}
+
+class BoostRechargeBonus extends Bonus {
+  constructor () {
+    super()
+    this.bonus = 250
+    this.rarity = 0.5
+    this.color = 'hsla(276, 100%, 59%, 1)'
+  }
+
+  display () {
+    return 'Vector Cooling: ' + (this.bonus / 1000) + 's faster Boost recharge'
+  }
+
+  enable () {
+    boost.cooldown -= this.bonus
+  }
+}
+
+class BoostSpeedBonus extends Bonus {
+  constructor () {
+    super()
+    this.bonus = 1
+    this.rarity = 0.2
+    this.color = 'hsla(174, 100%, 50%, 1)'
+  }
+
+  display () {
+    return 'Turbo Booster: +' + this.bonus + ' Boost speed'
+  }
+
+  enable () {
+    boost.velocity += this.bonus
+  }
+}
+
+class ExtraBoostBonus extends Bonus {
+  constructor () {
+    super()
+    this.bonus = 1
+    this.rarity = 0.75
+    this.color = 'hsla(45, 100%, 50%, 1)'
+  }
+
+  display () {
+    return 'Spare Core: +' + this.bonus + ' Boost charges'
+  }
+
+  enable () {
+    boost.maxCharges += this.bonus
+    boost.charges = boost.maxCharges
+  }
+}
+
+
+function getRandomBonuses (num) {
+  let pool = [
+    new BoostRechargeBonus(),
+    new ExtraBoostBonus(),
+    new BoostSpeedBonus(),
+    new BulletSpeedBonus(),
+    new MaxSpeedBonus()
+  ].sort((a, b) => {
+    return a.rarity > b.rarity ? -1 : 1
+  })
+
+  let found = []
+  let attempts = 0
+  do {
+    for(var i = 0; i < pool.length; i++) {
+      const bonus = pool[i]
+      if (Math.random() < bonus.rarity) {
+        found.push(bonus)
+        pool.splice(i, 1)
+        break
+      }
+    }
+  }
+  while (attempts < 1000 && found.length < num)
+
+  found = found.map((x) => {
+    x.sort = Math.random()
+    return x
+  })
+  .sort((a,b) => {
+    return a.sort > b.sort ? -1 : 1
+  })
+
+  return found
+}
+
+function endRound (win)
+{
+  clearTimeout(startRound.winTimeout)
+  asteroidVelFactor = 0;
+  resetAsteroids()
+
+  boost.charges = boost.maxCharges
+
+  ship.pos.setXY(screenWidth >> 1, screenHeight >> 1);
+  ship.vel.setXY(0, 0);
+  gameState = 'paused'
+
+  context.fillStyle = '#333'
+  context.fillRect(10, 40, 950, 740)
+  context.font = '15px Arial';
+  context.fillStyle = '#fff'
+
+  const textX = 400
+
+  if (win) {
+    const rand = Math.random()
+
+    context.fillText('Round ' + currentRound + ' complete', textX, 400);
+    context.fillText('Next round will be harder', textX, 440);
+
+    const bonuses = getRandomBonuses(3)
+    const defaultBonusFill = 'hsla(189, 100%, 50%, 1)'
+    context.fillStyle = defaultBonusFill
+    context.fillText('Select a bonus to start next round', textX, 500);
+    bonuses.forEach((bonus, i) => {
+      context.fillStyle = bonus.color ? bonus.color : defaultBonusFill
+      context.fillText((i+1) + ': ' + bonus.display(), textX, 500 + ((i + 1) * 20));
+    })
+
+    function pickBonus (e) {
+      console.log(`pick a bonus`)
+      let idx = e.keyCode - 65
+
+      if (idx < 0) {
+        idx = e.keyCode - 49
+      }
+
+      if (!bonuses[idx]) {
+        console.log(`invalid`)
+        return
+      }
+
+      const choice = bonuses[idx] //
+      console.log(`Picked ${choice.display()}`)
+      choice.enable()
+
+      setTimeout(() => {
+        startRound()
+      }, 1000)
+
+      window.removeEventListener('keypress', pickBonus)
+    }
+
+    window.addEventListener('keypress', pickBonus)
+
+    maxNumAsteroids++
+    asteroidStartVelocity += 0.5
+  } else {
+    context.fillText('Final round: ' + currentRound, textX, 400)
+    context.fillText('Round remaining: ' + ((1 - roundProgress) * 100).toFixed(1) + '%', textX, 420)
+    context.fillText('Final score: ' + score, textX, 440);
+    context.fillText('Accuracy: ' + getAccuracy(), textX, 460);
+    context.fillText('Bonuses lost', textX, 480);
+    context.fillText('Click to restart', textX, 500);
+    score = 0
+    shotsFired = 0
+    shotsHit = 0
+    currentRound = 0
+
+    boost.cooldown = originalBoostCooldown
+    boost.maxCharges = originalBoostMaxCharges
+    boost.vel = originalBoostVel
+    bulletSpeed = originalBulletSpeed
+    maxVel = originalMaxVel
+    asteroidStartVelocity = originalAsteroidStartVel
+    maxNumAsteroids = originalMaxAsteroids
+
+    function restart () {
+      startRound()
+      window.removeEventListener('click', restart)
+    }
+  }
+
+
+  window.addEventListener('click', restart)
+}
+
+function startRound () {
+  gameState = 'playing'
+  crashed = false
+  currentRound += 1
+
+  console.log(`============================`)
+  console.log('maxVel', maxVel)
+  console.log('asteroidStartVelocity', asteroidStartVelocity)
+  console.log('bulletSpeed', bulletSpeed)
+  console.log('boost.cooldown', boost.cooldown)
+  console.log('maxNumAsteroids', maxNumAsteroids)
+  console.log(`============================`)
+
+  resetAsteroids();
+
+  roundStart = new Date()
+  roundEnd = new Date(roundStart.getTime() + roundDuration)
+}
+startRound.winTimeout = null
+
+function resetAsteroids()
+{
+  var i = asteroids.length - 1;
+
+  for(i; i > -1; --i)
+  {
+    var a = asteroids[i];
+    a.blacklisted = true;
+  }
+}
+</script>
